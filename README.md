@@ -1,29 +1,44 @@
 # Local Development Setup
 
-## Environment configuration
+## Configure Actionstep
 
-This app defaults to **production behavior** (e.g. `Secure` session cookies)
-unless explicitly told otherwise. To run locally over plain HTTP, you need a
-`.env` file that opts into development mode.
+The backend fetches asset data from Actionstep each time `GET /api/assets` is
+requested. Sign in through Actionstep's authorization-code flow; OAuth tokens
+are kept in backend memory only. Asset changes are written directly to
+Actionstep; there are no local JSON fallbacks or response caches.
 
-### 1. Create your `.env` file
+The portal supports adding an asset, editing `Asset_Value`, `Asset_Description`,
+`ReportAcctNo`, `Type`, `Comments_for_Client`, `LienAmount`, and `Equity_Basis`,
+and marking an asset deleted. New assets are created by POSTing a data
+collection record and then PUTting its field values. Only records created by
+the portal get `Client_Added=T`; later edits never change that marker. Delete
+sets `Deleted=DELETED` for auditing, and deleted rows are omitted from the
+display. Current edits target the action and data collection configured in
+`ASSET_API_URL` (the staging sample is action 7546 / collection 105).
 
-In the project root, create a file named `.env`:
+Create a gitignored `.env` file in the project root:
 
-```
+```env
 APP_ENV=development
+ACTIONSTEP_TOKEN_ENDPOINT=https://api.actionstepstaging.com/api/oauth/token
+ACTIONSTEP_AUTHORITY=https://go.actionstepstaging.com
+ACTIONSTEP_CLIENT_ID=your_client_id
+ACTIONSTEP_CLIENT_SECRET=your_client_secret
+ACTIONSTEP_SCOPE=all
+ACTIONSTEP_REDIRECT_HOST=127.0.0.1
+ACTIONSTEP_REDIRECT_PORT=7890
+ACTIONSTEP_FRONTEND_URL=http://localhost:5173/
 ```
 
-This file is gitignored and should never be committed — it only exists on
-your local machine.
+Keep the client secret out of source control and browser code. Do not commit the
+`.env` file. Production deployments should configure these values using the
+deployment platform's secret manager instead. Register
+`http://127.0.0.1:7890/` as the OAuth redirect URI for the Actionstep app. The
+backend listens on that loopback address for the OAuth callback while it runs.
+The OAuth tokens and browser handoff are held in memory and will be lost when
+the backend restarts.
 
-If it doesn't, add it before creating your `.env` file.
-
-## My Assets frontend
-
-The Rust API serves the complete My Assets page payload from
-`backend/data/my-assets.json` at `GET http://localhost:3000/api/assets`.
-The Svelte app proxies `/api` to that backend during development.
+## Run the app
 
 Start the backend from `backend/`:
 
@@ -38,35 +53,11 @@ npm install
 npm run dev
 ```
 
-Open the URL printed by Vite (typically `http://localhost:5173`).
+Open the URL printed by Vite (typically `http://localhost:5173`). The Svelte
+development server proxies `/api` requests to the Rust backend on port 3000.
 
-### 2. Run the app
-
-```bash
-cargo run
-```
-
-If http is not working, it means
-`APP_ENV` wasn't picked up — double check:
-- `.env` exists in the project directory
-- It contains exactly `APP_ENV=development` (no quotes, no extra spaces)
-- You don't have `APP_ENV` already set in your shell environment (a shell-level
-  `export APP_ENV=production` will override `.env`, since env vars set before
-  the process starts take precedence)
-
-### Why production is the default
-
-If `APP_ENV` is unset (e.g. forgotten in a deploy environment), the app
-fails safe into production behavior — cookies get `Secure` set, rather than
-silently running an insecure configuration. You have to explicitly opt into
-the relaxed local-dev behavior via `.env`, not the other way around.
-
-### Notes
-
-- `.env` is for **local development only**. Production environments should
-  set `APP_ENV=production` (or leave it unset) through your actual deployment
-  mechanism (Docker env vars, systemd unit, hosting platform config, etc.) —
-  never via a checked-in `.env` file.
-- Valid values for `APP_ENV` are `production` and `development`. Any other
-  value will cause the app to panic on startup with a clear error, rather
-  than silently falling back to an unexpected mode.
+This app defaults to production behavior (including `Secure` session cookies)
+unless explicitly told otherwise. For local plain HTTP development, set
+`APP_ENV=development`. If `APP_ENV` is unset, production behavior is used.
+Valid values are `production` and `development`; any other value causes startup
+to fail with an error.

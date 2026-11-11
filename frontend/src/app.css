@@ -126,6 +126,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .text-button { border: 0; background: transparent; color: var(--orange-dark); cursor: pointer; font-size: 10px; font-weight: 700; }
 .draft-banner .text-button { margin-left: auto; white-space: nowrap; }
 .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 8px; }
+.toolbar-actions { display: flex; align-items: center; gap: 8px; }
 .search-box { width: min(100%, 330px); height: 34px; display: flex; align-items: center; gap: 8px; padding: 0 9px; border: 1px solid #d7dfdc; background: #fff; color: #84908e; }
 .search-box > span { font-size: 21px; line-height: 1; }
 .search-box input { width: 100%; min-width: 0; border: 0; outline: none; background: transparent; color: var(--ink); font-size: 10px; }
@@ -176,6 +177,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .cancel-comment { color: #71807b; }
 .mini-primary { padding: 5px 8px; border: 0; border-radius: 2px; background: var(--navy); color: #fff; cursor: pointer; font-size: 8px; }
 .asset-actions { display: flex; justify-content: flex-end; }
+.asset-actions { gap: 8px; }
+.delete-action { color: var(--red); }
 .remove-button, .undo-button { min-width: 23px; height: 23px; border: 1px solid #e1e6e4; background: #fff; color: #8c9995; cursor: pointer; }
 .remove-button { border-radius: 50%; font-size: 15px; line-height: 1; }
 .remove-button:hover { border-color: #d8b0a4; color: var(--red); }
@@ -209,12 +212,18 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .toast button { border: 0; background: transparent; color: #73817b; cursor: pointer; font-size: 17px; }
 .modal-backdrop { position: fixed; inset: 0; z-index: 4; display: grid; place-items: center; padding: 20px; background: rgba(12, 31, 39, .48); animation: fade-in .16s ease both; }
 .asset-modal { width: min(100%, 470px); padding: 22px; border-top: 3px solid var(--orange); background: #fff; box-shadow: 0 25px 80px rgba(10, 30, 37, .25); animation: enter .2s ease both; }
+.asset-modal { max-height: calc(100vh - 40px); overflow-y: auto; }
 .modal-heading { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 20px; }
 .modal-heading h2 { margin: 0; color: var(--navy); font: 700 21px Manrope, sans-serif; }
 .modal-close { width: 28px; height: 28px; border: 0; background: transparent; color: #687774; cursor: pointer; font-size: 23px; }
 .asset-modal form { display: grid; gap: 14px; }
 .asset-modal label { display: grid; gap: 6px; color: #4c5e61; font-size: 10px; font-weight: 700; }
 .asset-modal input, .asset-modal select { width: 100%; min-height: 38px; padding: 8px 10px; border: 1px solid #d8e0dd; border-radius: 2px; background: #fff; color: var(--ink); font-size: 11px; }
+.asset-modal textarea { width: 100%; min-height: 70px; padding: 8px 10px; border: 1px solid #d8e0dd; border-radius: 2px; resize: vertical; font-size: 11px; }
+.edit-asset-modal { width: min(100%, 540px); }
+.mutation-message { margin: 0 0 8px; padding: 9px 11px; font-size: 10px; }
+.error-message { border: 1px solid #edd9d3; background: var(--red-soft); color: var(--red); }
+.success-message { border: 1px solid #d6e7dc; background: var(--green-soft); color: var(--green); }
 .modal-note { margin: 0; color: #7b8885; font-size: 9px; line-height: 1.5; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; padding-top: 13px; border-top: 1px solid #e8ecea; }
 .button-quiet { background: #f0f3f2; color: #52615e; }

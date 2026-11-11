@@ -1,7 +1,10 @@
-use ::backend::{app, backend::MemoryBackend, providers::mock::MockProvider};
+use ::backend::{
+    actionstep_callback_app, app_with_assets_store, assets_store::AssetsStore,
+    backend::MemoryBackend, providers::mock::MockProvider,
+};
 
-mod backend;
 mod assets_store;
+mod backend;
 mod handlers;
 mod models;
 mod providers;
@@ -36,17 +39,37 @@ fn is_production() -> bool {
 // }
 
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenvy::dotenv().ok();
     let production = is_production();
     println!(
         "Starting in {} mode (secure cookies: {})",
-        if production { "production" } else { "development" },
+        if production {
+            "production"
+        } else {
+            "development"
+        },
         production
     );
 
-    let router = app(MemoryBackend::default(), Arc::new(MockProvider::default()), production);
+    let assets_store = AssetsStore::default();
+    let callback_listener =
+        tokio::net::TcpListener::bind(assets_store.callback_bind_address()?).await?;
+    let callback_router = actionstep_callback_app(assets_store.clone());
+    tokio::spawn(async move {
+        if let Err(error) = axum::serve(callback_listener, callback_router).await {
+            eprintln!("Actionstep OAuth callback server failed: {error}");
+        }
+    });
+
+    let router = app_with_assets_store(
+        MemoryBackend::default(),
+        Arc::new(MockProvider::default()),
+        production,
+        assets_store,
+    );
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
-    axum::serve(listener, router).await.unwrap();
+    axum::serve(listener, router).await?;
+    Ok(())
 }

@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -54,6 +55,12 @@ pub struct AssetCategory {
 #[serde(rename_all = "camelCase")]
 pub struct Asset {
     pub id: String,
+    #[serde(default)]
+    pub record_id: String,
+    #[serde(default)]
+    pub category_value: String,
+    #[serde(default)]
+    pub editable_fields: HashMap<String, String>,
     pub name: String,
     pub details: String,
     pub value: i64,
@@ -101,26 +108,4 @@ pub struct Footer {
     pub address: String,
     pub phone: String,
     pub links: Vec<String>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CreateAssetRequest {
-    pub category_id: String,
-    pub name: String,
-    #[serde(default)]
-    pub details: String,
-    pub value: i64,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct UpdateAssetRequest {
-    pub name: Option<String>,
-    pub details: Option<String>,
-    pub value: Option<i64>,
-    pub status: Option<AssetStatus>,
-    pub status_label: Option<String>,
-    pub note: Option<String>,
-    pub client_comment: Option<String>,
 }

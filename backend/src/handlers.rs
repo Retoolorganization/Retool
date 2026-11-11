@@ -1,28 +1,45 @@
 use crate::backend::{AuthSession, OidcCredentials}; // see note below on Credentials type
 use crate::providers::IdentityProvider;
 use crate::providers::mock::MockProvider;
+use axum::Json;
 use axum::extract::{Extension, Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Redirect, Response};
-use axum::Json;
 use serde::Deserialize;
 use serde_json::json;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 use tower_sessions::Session;
 
-use crate::assets_store::{AssetsStore, AssetsStoreError};
-use crate::models::{Asset, AssetsPage, CreateAssetRequest, UpdateAssetRequest};
+use crate::assets_store::{AssetsStore, AssetsStoreError, NewAssetInput, refresh_summary};
+use crate::models::{AssetsPage, Client, Footer, FundingSummary, NextStep};
 
 impl IntoResponse for AssetsStoreError {
     fn into_response(self) -> Response {
         let (status, message) = match self {
-            Self::InvalidName => (StatusCode::BAD_REQUEST, "Asset name is required."),
-            Self::CategoryNotFound => (StatusCode::NOT_FOUND, "Asset category was not found."),
-            Self::AssetNotFound => (StatusCode::NOT_FOUND, "Asset was not found."),
-            Self::Io(_) | Self::Json(_) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Unable to persist the assets JSON file.",
+            Self::MissingCredentials => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "Actionstep OAuth credentials are not configured on the server.",
             ),
+            Self::NotAuthenticated => (
+                StatusCode::UNAUTHORIZED,
+                "Sign in to Actionstep before viewing assets.",
+            ),
+            Self::BrowserSession(_) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Unable to establish the browser session.",
+            ),
+            Self::InvalidConfiguration(_) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Actionstep OAuth configuration is invalid.",
+            ),
+            Self::InvalidAsset(message) => {
+                return (StatusCode::BAD_REQUEST, Json(json!({ "error": message })))
+                    .into_response();
+            }
+            Self::RemoteFetch(message) => {
+                return (StatusCode::BAD_GATEWAY, Json(json!({ "error": message })))
+                    .into_response();
+            }
         };
         (status, Json(json!({ "error": message }))).into_response()
     }
@@ -120,34 +137,206 @@ pub async fn index_handler() -> impl IntoResponse {
     "Home page. Try /login or /protected."
 }
 
+pub async fn actionstep_login_handler(
+    Extension(store): Extension<AssetsStore>,
+) -> Result<Redirect, AssetsStoreError> {
+    let url = store.begin_login().await?;
+    Ok(Redirect::temporary(&url))
+}
+
+#[derive(Deserialize)]
+pub struct ActionStepCallbackParams {
+    code: Option<String>,
+    state: Option<String>,
+    error: Option<String>,
+}
+
+pub async fn actionstep_callback_handler(
+    Extension(store): Extension<AssetsStore>,
+    Query(params): Query<ActionStepCallbackParams>,
+) -> Redirect {
+    if params.error.is_some() {
+        return Redirect::to(
+            &store
+                .frontend_redirect_url(None)
+                .unwrap_or_else(|_| "/".to_string()),
+        );
+    }
+
+    let result = match (params.code.as_deref(), params.state.as_deref()) {
+        (Some(code), Some(state)) => store.complete_login(code, state).await,
+        _ => Err(AssetsStoreError::RemoteFetch(
+            "OAuth callback did not include a code and state".to_string(),
+        )),
+    };
+    match result {
+        Ok(handoff) => Redirect::to(
+            &store
+                .frontend_redirect_url(Some(&handoff))
+                .unwrap_or_else(|_| "/".to_string()),
+        ),
+        Err(error) => {
+            eprintln!("Actionstep OAuth callback failed: {error}");
+            Redirect::to(
+                &store
+                    .frontend_redirect_url(None)
+                    .unwrap_or_else(|_| "/".to_string()),
+            )
+        }
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CompleteActionStepLoginRequest {
+    handoff_code: String,
+}
+
+pub async fn complete_actionstep_login_handler(
+    Extension(store): Extension<AssetsStore>,
+    session: Session,
+    Json(request): Json<CompleteActionStepLoginRequest>,
+) -> Result<StatusCode, AssetsStoreError> {
+    let session_id = store.consume_handoff(&request.handoff_code).await?;
+    if let Err(error) = session.insert("actionstep_session_id", &session_id).await {
+        store.logout(&session_id).await;
+        return Err(AssetsStoreError::BrowserSession(error.to_string()));
+    }
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn actionstep_logout_handler(
+    Extension(store): Extension<AssetsStore>,
+    session: Session,
+) -> Result<StatusCode, AssetsStoreError> {
+    let session_id = session
+        .get::<String>("actionstep_session_id")
+        .await
+        .map_err(|error| AssetsStoreError::BrowserSession(error.to_string()))?;
+    if let Some(session_id) = session_id {
+        store.logout(&session_id).await;
+    }
+    session
+        .remove::<String>("actionstep_session_id")
+        .await
+        .map_err(|error| AssetsStoreError::BrowserSession(error.to_string()))?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
 pub async fn my_assets_handler(
     Extension(store): Extension<AssetsStore>,
+    session: Session,
 ) -> Result<Json<AssetsPage>, AssetsStoreError> {
-    Ok(Json(store.get_page().await?))
+    // 1. Resolve API URL and optional Bearer Token
+    let session_id = session
+        .get::<String>("actionstep_session_id")
+        .await
+        .map_err(|error| AssetsStoreError::BrowserSession(error.to_string()))?
+        .ok_or(AssetsStoreError::NotAuthenticated)?;
+    let mut page = default_assets_page();
+    page.categories = store.get_categories(&session_id).await?;
+    refresh_summary(&mut page);
+    Ok(Json(page))
 }
 
 pub async fn create_asset_handler(
     Extension(store): Extension<AssetsStore>,
-    Json(request): Json<CreateAssetRequest>,
-) -> Result<(StatusCode, Json<Asset>), AssetsStoreError> {
-    let asset = store.create_asset(request).await?;
-    Ok((StatusCode::CREATED, Json(asset)))
+    session: Session,
+    Json(input): Json<NewAssetInput>,
+) -> Result<StatusCode, AssetsStoreError> {
+    let session_id = actionstep_session_id(&session).await?;
+    store.create_asset(&session_id, input).await?;
+    Ok(StatusCode::CREATED)
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct UpdateAssetRequest {
+    fields: HashMap<String, String>,
 }
 
 pub async fn update_asset_handler(
     Extension(store): Extension<AssetsStore>,
-    Path(asset_id): Path<String>,
+    session: Session,
+    Path(record_id): Path<String>,
     Json(request): Json<UpdateAssetRequest>,
-) -> Result<Json<Asset>, AssetsStoreError> {
-    Ok(Json(store.update_asset(&asset_id, request).await?))
+) -> Result<StatusCode, AssetsStoreError> {
+    let session_id = actionstep_session_id(&session).await?;
+    store
+        .update_asset(&session_id, &record_id, request.fields)
+        .await?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 pub async fn delete_asset_handler(
     Extension(store): Extension<AssetsStore>,
-    Path(asset_id): Path<String>,
+    session: Session,
+    Path(record_id): Path<String>,
 ) -> Result<StatusCode, AssetsStoreError> {
-    store.delete_asset(&asset_id).await?;
+    let session_id = actionstep_session_id(&session).await?;
+    store.delete_asset(&session_id, &record_id).await?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+async fn actionstep_session_id(session: &Session) -> Result<String, AssetsStoreError> {
+    session
+        .get::<String>("actionstep_session_id")
+        .await
+        .map_err(|error| AssetsStoreError::BrowserSession(error.to_string()))?
+        .ok_or(AssetsStoreError::NotAuthenticated)
+}
+
+fn default_assets_page() -> AssetsPage {
+    AssetsPage {
+        client: Client {
+            name: "Client".to_string(),
+            co_client: String::new(),
+            report_title: "Asset Review Report".to_string(),
+        },
+        notice: "This report shows asset data retrieved from Actionstep. Contact your firm to request changes.".to_string(),
+        funding: FundingSummary {
+            percent: 0.0,
+            verified: 0,
+            left_to_verify: 0,
+            not_fundable: 0,
+            not_funded_per_client: 0,
+            fundable_total: 0,
+            footnote: "Percent funded excludes assets marked Not Fundable.".to_string(),
+        },
+        next_steps: vec![
+            NextStep {
+                title: "Review your assets".to_string(),
+                description: "Check the details and funding status shown in your inventory.".to_string(),
+            },
+            NextStep {
+                title: "Request an update".to_string(),
+                description: "Contact your firm if any values or details need correction.".to_string(),
+            },
+            NextStep {
+                title: "Refresh the report".to_string(),
+                description: "Refresh this page to fetch the latest data from Actionstep.".to_string(),
+            },
+        ],
+        columns: vec![
+            "Asset Description".to_string(),
+            "Asset Value".to_string(),
+            "Funding Status".to_string(),
+            "Comments".to_string(),
+        ],
+        categories: Vec::new(),
+        total_value: 0,
+        total_note: "Values with an asterisk are not included in totals.".to_string(),
+        footer: Footer {
+            firm: "InSight Law, PLLC".to_string(),
+            address: "44365 Premier Plaza, Suite 200, Ashburn, VA 20147".to_string(),
+            phone: "703-654-6019".to_string(),
+            links: vec![
+                "Privacy Policy".to_string(),
+                "Terms of Service".to_string(),
+                "Portal FAQs".to_string(),
+            ],
+        },
+    }
 }
 
 pub async fn shubham_handler() -> impl IntoResponse {
