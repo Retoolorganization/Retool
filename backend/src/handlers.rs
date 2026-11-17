@@ -242,11 +242,59 @@ pub async fn my_assets_handler(
 pub async fn create_asset_handler(
     Extension(store): Extension<AssetsStore>,
     session: Session,
+    Json(request): Json<CreateAssetRequest>,
+) -> Result<(StatusCode, Json<serde_json::Value>), AssetsStoreError> {
+    let session_id = actionstep_session_id(&session).await?;
+    let links = request.datacollectionrecords.links;
+    let record_id = store
+        .create_asset_record(&session_id, &links.action, &links.data_collection)
+        .await?;
+    let response_id = match record_id.parse::<u64>() {
+        Ok(id) => json!(id),
+        Err(_) => json!(record_id),
+    };
+    Ok((
+        StatusCode::CREATED,
+        Json(json!({
+            "datacollectionrecords": {
+                "id": response_id,
+                "links": {
+                    "action": links.action,
+                    "dataCollection": links.data_collection
+                }
+            }
+        })),
+    ))
+}
+
+#[derive(Deserialize)]
+pub struct CreateAssetRequest {
+    datacollectionrecords: CreateAssetRecord,
+}
+
+#[derive(Deserialize)]
+struct CreateAssetRecord {
+    links: CreateAssetRecordLinks,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CreateAssetRecordLinks {
+    action: String,
+    data_collection: String,
+}
+
+pub async fn create_asset_values_handler(
+    Extension(store): Extension<AssetsStore>,
+    session: Session,
+    Path(record_id): Path<String>,
     Json(input): Json<NewAssetInput>,
 ) -> Result<StatusCode, AssetsStoreError> {
     let session_id = actionstep_session_id(&session).await?;
-    store.create_asset(&session_id, input).await?;
-    Ok(StatusCode::CREATED)
+    store
+        .create_asset_values(&session_id, &record_id, input)
+        .await?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 #[derive(Deserialize)]
@@ -341,4 +389,25 @@ fn default_assets_page() -> AssetsPage {
 
 pub async fn shubham_handler() -> impl IntoResponse {
     "Shubham page. Try /login or /protected."
+}
+
+#[cfg(test)]
+mod tests {
+    use super::CreateAssetRequest;
+
+    #[test]
+    fn create_asset_request_accepts_links_without_form_fields() {
+        let request: CreateAssetRequest = serde_json::from_value(serde_json::json!({
+            "datacollectionrecords": {
+                "links": {
+                    "action": "7546",
+                    "dataCollection": "105"
+                }
+            }
+        }))
+        .unwrap();
+
+        assert_eq!(request.datacollectionrecords.links.action, "7546");
+        assert_eq!(request.datacollectionrecords.links.data_collection, "105");
+    }
 }

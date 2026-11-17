@@ -434,22 +434,32 @@ impl AssetsStore {
             .map_err(|error| AssetsStoreError::RemoteFetch(error.to_string()))
     }
 
-    pub async fn create_asset(
+    pub async fn create_asset_record(
         &self,
         session_id: &str,
-        input: NewAssetInput,
-    ) -> Result<(), AssetsStoreError> {
-        let category = required_asset_value(input.category, "category")?;
-        let description = required_asset_value(input.description, "description")?;
-        let asset_type = required_asset_value(input.asset_type, "type")?;
-        let value = validate_asset_value(&input.value, "Asset_Value")?;
-        let account_number = validate_optional_text(input.report_acct_no, "ReportAcctNo")?;
-        let comments = validate_optional_text(input.comments, "Comments_for_Client")?;
-        let (action, collection) = self.actionstep_ids()?;
+        action: &str,
+        collection: &str,
+    ) -> Result<String, AssetsStoreError> {
+        let (configured_action, configured_collection) = self.actionstep_ids()?;
+        if action != configured_action || collection != configured_collection {
+            return Err(AssetsStoreError::InvalidAsset(
+                "asset action and collection must match the configured Actionstep endpoint"
+                    .to_string(),
+            ));
+        }
         let (access_token, api_endpoint) = self.access_token(session_id).await?;
         let client = Self::http_client()?;
         let create_url =
             self.resource_url(api_endpoint.as_deref(), "/api/rest/datacollectionrecords")?;
+        let body = serde_json::to_vec(&serde_json::json!({
+            "datacollectionrecords": {
+                "links": {
+                    "action": action,
+                    "dataCollection": collection
+                }
+            }
+        }))
+        .map_err(|error| AssetsStoreError::RemoteFetch(error.to_string()))?;
         let response = client
             .post(create_url)
             .bearer_auth(&access_token)
@@ -457,14 +467,8 @@ impl AssetsStore {
                 reqwest::header::ACCEPT,
                 "application/vnd.api+json, application/json",
             )
-            .json(&serde_json::json!({
-                "datacollectionrecords": {
-                    "links": {
-                        "action": action,
-                        "dataCollection": collection
-                    }
-                }
-            }))
+            .header(reqwest::header::CONTENT_TYPE, "application/vnd.api+json")
+            .body(body)
             .send()
             .await
             .map_err(|error| AssetsStoreError::RemoteFetch(error.to_string()))?;
@@ -491,6 +495,25 @@ impl AssetsStore {
                     "Actionstep did not return a valid asset record ID".to_string(),
                 )
             })?;
+        Ok(record_id)
+    }
+
+    pub async fn create_asset_values(
+        &self,
+        session_id: &str,
+        record_id: &str,
+        input: NewAssetInput,
+    ) -> Result<(), AssetsStoreError> {
+        validate_record_id(record_id)?;
+        let category = required_asset_value(input.category, "category")?;
+        let description = required_asset_value(input.description, "description")?;
+        let asset_type = required_asset_value(input.asset_type, "type")?;
+        let value = validate_asset_value(&input.value, "Asset_Value")?;
+        let account_number = validate_optional_text(input.report_acct_no, "ReportAcctNo")?;
+        let comments = validate_optional_text(input.comments, "Comments_for_Client")?;
+        let (action, collection) = self.actionstep_ids()?;
+        let (access_token, api_endpoint) = self.access_token(session_id).await?;
+        let client = Self::http_client()?;
         let values = vec![
             ("Asset_Category".to_string(), category),
             ("Asset_Description".to_string(), description),
@@ -505,7 +528,6 @@ impl AssetsStore {
                     comments
                 },
             ),
-            ("Client_Added".to_string(), "T".to_string()),
         ];
         if let Err(error) = self
             .put_record_values(
@@ -645,6 +667,10 @@ impl AssetsStore {
             api_endpoint,
             &format!("/api/rest/datacollectionrecordvalues/{ids}"),
         )?;
+        let body = serde_json::to_vec(
+            &serde_json::json!({"datacollectionrecordvalues": entries}),
+        )
+        .map_err(|error| AssetsStoreError::RemoteFetch(error.to_string()))?;
         let response = client
             .put(url)
             .bearer_auth(access_token)
@@ -652,7 +678,8 @@ impl AssetsStore {
                 reqwest::header::ACCEPT,
                 "application/vnd.api+json, application/json",
             )
-            .json(&serde_json::json!({"datacollectionrecordvalues": entries}))
+            .header(reqwest::header::CONTENT_TYPE, "application/vnd.api+json")
+            .body(body)
             .send()
             .await
             .map_err(|error| AssetsStoreError::RemoteFetch(error.to_string()))?;
@@ -1564,6 +1591,12 @@ mod tests {
         headers: HeaderMap,
         Json(body): Json<serde_json::Value>,
     ) -> Json<serde_json::Value> {
+        assert_eq!(
+            headers
+                .get(axum::http::header::CONTENT_TYPE)
+                .and_then(|value| value.to_str().ok()),
+            Some("application/vnd.api+json")
+        );
         assert!(
             headers
                 .get(axum::http::header::AUTHORIZATION)
@@ -1587,7 +1620,15 @@ mod tests {
             "/api/rest/datacollectionrecords".to_string(),
             body,
         ));
-        Json(serde_json::json!({"datacollectionrecords": {"id": 90001}}))
+        Json(serde_json::json!({
+            "datacollectionrecords": {
+                "id": 90001,
+                "links": {
+                    "action": "7546",
+                    "dataCollection": "105"
+                }
+            }
+        }))
     }
 
     async fn update_record_values(
@@ -1595,6 +1636,12 @@ mod tests {
         headers: HeaderMap,
         Json(body): Json<serde_json::Value>,
     ) -> StatusCode {
+        assert_eq!(
+            headers
+                .get(axum::http::header::CONTENT_TYPE)
+                .and_then(|value| value.to_str().ok()),
+            Some("application/vnd.api+json")
+        );
         assert!(
             headers
                 .get(axum::http::header::AUTHORIZATION)
@@ -1718,9 +1765,15 @@ mod tests {
         assert!(store.consume_handoff(&handoff).await.is_err());
 
         let categories = store.get_categories(&session_id).await.unwrap();
+        let record_id = store
+            .create_asset_record(&session_id, "7546", "105")
+            .await
+            .unwrap();
+        assert_eq!(record_id, "90001");
         store
-            .create_asset(
+            .create_asset_values(
                 &session_id,
+                &record_id,
                 NewAssetInput {
                     category: "01 - Cash Account".to_string(),
                     description: "Checking".to_string(),
@@ -1757,16 +1810,81 @@ mod tests {
         let writes = WRITE_CALLS.lock().unwrap();
         assert_eq!(writes.len(), 4);
         assert_eq!(writes[0].0, "POST");
+        assert_eq!(writes[1].0, "PUT");
+        assert_eq!(
+            writes[1].1,
+            "105--Asset_Category--90001,105--Asset_Description--90001,105--ReportAcctNo--90001,105--Type--90001,105--Asset_Value--90001,105--Comments_for_Client--90001"
+        );
         let create_values = writes[1]
             .2
             .get("datacollectionrecordvalues")
             .and_then(serde_json::Value::as_array)
             .unwrap();
-        assert!(
-            create_values
-                .iter()
-                .any(|value| value["id"] == "105--Client_Added--90001"
-                    && value["stringValue"] == "T")
+        let expected_create_values = serde_json::json!([
+            {
+                "id": "105--Asset_Category--90001",
+                "stringValue": "01 - Cash Account",
+                "links": {
+                    "action": "7546",
+                    "dataCollectionField": "105--Asset_Category",
+                    "dataCollectionRecord": "90001",
+                    "dataCollection": "105"
+                }
+            },
+            {
+                "id": "105--Asset_Description--90001",
+                "stringValue": "Checking",
+                "links": {
+                    "action": "7546",
+                    "dataCollectionField": "105--Asset_Description",
+                    "dataCollectionRecord": "90001",
+                    "dataCollection": "105"
+                }
+            },
+            {
+                "id": "105--ReportAcctNo--90001",
+                "stringValue": "x1234",
+                "links": {
+                    "action": "7546",
+                    "dataCollectionField": "105--ReportAcctNo",
+                    "dataCollectionRecord": "90001",
+                    "dataCollection": "105"
+                }
+            },
+            {
+                "id": "105--Type--90001",
+                "stringValue": "Checking",
+                "links": {
+                    "action": "7546",
+                    "dataCollectionField": "105--Type",
+                    "dataCollectionRecord": "90001",
+                    "dataCollection": "105"
+                }
+            },
+            {
+                "id": "105--Asset_Value--90001",
+                "stringValue": "25000",
+                "links": {
+                    "action": "7546",
+                    "dataCollectionField": "105--Asset_Value",
+                    "dataCollectionRecord": "90001",
+                    "dataCollection": "105"
+                }
+            },
+            {
+                "id": "105--Comments_for_Client--90001",
+                "stringValue": "Added from portal",
+                "links": {
+                    "action": "7546",
+                    "dataCollectionField": "105--Comments_for_Client",
+                    "dataCollectionRecord": "90001",
+                    "dataCollection": "105"
+                }
+            }
+        ]);
+        assert_eq!(
+            create_values.as_slice(),
+            expected_create_values.as_array().unwrap().as_slice()
         );
         let updated_values = writes[2]
             .2

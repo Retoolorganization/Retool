@@ -68,6 +68,10 @@ pub fn app_with_assets_store<I: IdentityProvider + 'static>(
             "/api/assets/{record_id}",
             put(handlers::update_asset_handler).delete(handlers::delete_asset_handler),
         )
+        .route(
+            "/api/assets/{record_id}/values",
+            put(handlers::create_asset_values_handler),
+        )
         .route("/shubham", get(handlers::shubham_handler))
         .layer(Extension(assets_store))
         .layer(auth_layer);
@@ -189,10 +193,12 @@ mod tests {
         server
             .post("/api/assets")
             .json(&serde_json::json!({
-                "category": "01 - Cash Account",
-                "description": "Checking",
-                "assetType": "Checking",
-                "value": "1000"
+                "datacollectionrecords": {
+                    "links": {
+                        "action": "7546",
+                        "dataCollection": "105"
+                    }
+                }
             }))
             .await
             .assert_status(StatusCode::UNAUTHORIZED);
