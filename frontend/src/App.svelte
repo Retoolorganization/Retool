@@ -149,8 +149,46 @@
 
   async function submitNewAsset(event: SubmitEvent) {
       event.preventDefault();
-      await saveAsset('/api/assets', 'POST', newAssetForm);
-      if (!mutationError) {
+      mutationError = '';
+      mutationMessage = '';
+      savingAsset = true;
+      try {
+        const createResponse = await fetch('/api/assets', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+  "datacollectionrecords": {
+    "links": {
+      "action": "7546",
+      "dataCollection": "105"
+    }
+  }
+}
+)
+        });
+        if (!createResponse.ok) throw await responseError(createResponse);
+        const created = await createResponse.json() as {
+          datacollectionrecords?: { id?: unknown }
+        };
+        const returnedId = created.datacollectionrecords?.id;
+        const recordId = typeof returnedId === 'number' && Number.isSafeInteger(returnedId)
+          ? String(returnedId)
+          : typeof returnedId === 'string' ? returnedId : '';
+        if (!/^\d+$/.test(recordId)) {
+          throw new Error('The server did not return a valid asset record ID.');
+        }
+
+        const valuesResponse = await fetch(
+          `/api/assets/${encodeURIComponent(recordId)}/values`,
+          {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(newAssetForm)
+          }
+        );
+        if (!valuesResponse.ok) throw await responseError(valuesResponse);
+        await loadAssets();
+        mutationMessage = 'Asset added to Actionstep.';
         showNewAsset = false;
         newAssetForm = {
           category: categoryOptions[0] ?? '01 - Cash Account',
@@ -160,6 +198,10 @@
           value: '',
           comments: 'Client submitted through portal'
         };
+      } catch (error) {
+        mutationError = error instanceof Error ? error.message : 'Unable to save asset.';
+      } finally {
+        savingAsset = false;
       }
     }
 
@@ -176,7 +218,6 @@
       }
       await saveAsset(
         `/api/assets/${encodeURIComponent(editingAsset.recordId)}`,
-        'PUT',
         { fields }
       );
       if (!mutationError) editingAsset = null;
@@ -201,19 +242,19 @@
       }
     }
 
-  async function saveAsset(url: string, method: 'POST' | 'PUT', body: unknown) {
+  async function saveAsset(url: string, body: unknown) {
       mutationError = '';
       mutationMessage = '';
       savingAsset = true;
       try {
         const response = await fetch(url, {
-          method,
+          method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body)
         });
         if (!response.ok) throw await responseError(response);
         await loadAssets();
-        mutationMessage = method === 'POST' ? 'Asset added to Actionstep.' : 'Asset updated in Actionstep.';
+        mutationMessage = 'Asset updated in Actionstep.';
       } catch (error) {
         mutationError = error instanceof Error ? error.message : 'Unable to save asset.';
       } finally {
@@ -371,7 +412,7 @@
           <label>Type<input bind:value={newAssetForm.assetType} required maxlength="2000" /></label>
           <label>Asset value<input type="text" inputmode="decimal" pattern="[0-9]+([.][0-9]+)?" bind:value={newAssetForm.value} required /></label>
           <label>Comments<textarea bind:value={newAssetForm.comments} maxlength="2000"></textarea></label>
-          <p class="modal-note">This creates a new Actionstep record. Assets added here are marked as client-added for audit purposes.</p>
+          <p class="modal-note">This creates a new Actionstep record with the details you enter.</p>
           {#if mutationError}<p class="mutation-message error-message" role="alert">{mutationError}</p>{/if}
           <div class="modal-actions"><button type="button" class="button button-quiet" onclick={() => showNewAsset = false} disabled={savingAsset}>Cancel</button><button type="submit" class="button button-primary" disabled={savingAsset}>{savingAsset ? 'Saving…' : 'Add asset'}</button></div>
         </form>
