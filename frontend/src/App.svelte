@@ -392,7 +392,14 @@
                         <div class="asset-value"><span class="mobile-label">Asset value</span><span class="value-field">{money(asset.value)}</span>{#if asset.excludedFromTotal}<small class="excluded-note">* Excluded from total</small>{/if}</div>
                         <div class="asset-status"><span class="mobile-label">Funding status</span><span class={`status-pill ${asset.status}`}>{#if asset.status === 'verified'}✓{:else if asset.status === 'needs_verification'}!{:else if asset.status === 'undecided'}?{:else}−{/if} {asset.statusLabel}</span></div>
                         <div class="asset-comments"><span class="mobile-label">Comments</span>{#if asset.note}<p class="firm-note">{asset.note}</p>{:else}<span>—</span>{/if}</div>
-                        <div class="asset-actions"><button class="text-button" onclick={() => openEditAsset(asset)} disabled={savingAsset}>Edit</button><button class="text-button delete-action" onclick={() => removeAsset(asset)} disabled={savingAsset}>Delete</button></div>
+                        <div class="asset-actions">
+                          <button class="asset-action-button" aria-label={`Edit ${asset.name}`} title={`Edit ${asset.name}`} onclick={() => openEditAsset(asset)} disabled={savingAsset}>
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m16.5 3.5 4 4L8 20l-5 1 1-5Z" /><path d="m14 6 4 4" /></svg>
+                          </button>
+                          <button class="asset-action-button delete-action" aria-label={`Delete ${asset.name}`} title={`Delete ${asset.name}`} onclick={() => removeAsset(asset)} disabled={savingAsset}>
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18" /><path d="M8 6V4h8v2m3 0-1 14H6L5 6" /><path d="M10 11v5m4-5v5" /></svg>
+                          </button>
+                        </div>
                       </article>
                     {/each}
                   {/if}
