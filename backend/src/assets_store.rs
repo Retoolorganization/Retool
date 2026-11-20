@@ -520,6 +520,7 @@ impl AssetsStore {
             ("ReportAcctNo".to_string(), account_number),
             ("Type".to_string(), asset_type),
             ("Asset_Value".to_string(), value),
+            ("Funding_Status".to_string(), "Needs Verified".to_string()),
             (
                 "Comments_for_Client".to_string(),
                 if comments.is_empty() {
@@ -998,7 +999,9 @@ pub fn build_categories_from_remote_records(records: &[ActionStepRecord]) -> Vec
 
         // 1. Exclude deleted assets
         if let Some(deleted) = fields.get("Deleted") {
-            if deleted.trim().eq_ignore_ascii_case("deleted") {
+            if deleted.trim().eq_ignore_ascii_case("deleted")
+                || deleted.trim().eq_ignore_ascii_case("true")
+            {
                 continue;
             }
         }
@@ -1693,11 +1696,51 @@ mod tests {
                     }
                 },
                 {
+                    "id": "category-deleted",
+                    "stringValue": "01 - Cash Accounts",
+                    "links": {
+                        "dataCollectionField": "fields--Asset_Category",
+                        "dataCollectionRecord": "asset-2"
+                    }
+                },
+                {
+                    "id": "description-deleted",
+                    "stringValue": "Removed account",
+                    "links": {
+                        "dataCollectionField": "fields--Asset_Description",
+                        "dataCollectionRecord": "asset-2"
+                    }
+                },
+                {
                     "id": "deleted",
-                    "stringValue": "DELETED",
+                    "stringValue": "true",
                     "links": {
                         "dataCollectionField": "fields--Deleted",
                         "dataCollectionRecord": "asset-2"
+                    }
+                },
+                {
+                    "id": "category-legacy-deleted",
+                    "stringValue": "01 - Cash Accounts",
+                    "links": {
+                        "dataCollectionField": "fields--Asset_Category",
+                        "dataCollectionRecord": "asset-3"
+                    }
+                },
+                {
+                    "id": "description-legacy-deleted",
+                    "stringValue": "Legacy removed account",
+                    "links": {
+                        "dataCollectionField": "fields--Asset_Description",
+                        "dataCollectionRecord": "asset-3"
+                    }
+                },
+                {
+                    "id": "legacy-deleted",
+                    "stringValue": "DELETED",
+                    "links": {
+                        "dataCollectionField": "fields--Deleted",
+                        "dataCollectionRecord": "asset-3"
                     }
                 }
             ]
@@ -1813,7 +1856,7 @@ mod tests {
         assert_eq!(writes[1].0, "PUT");
         assert_eq!(
             writes[1].1,
-            "105--Asset_Category--90001,105--Asset_Description--90001,105--ReportAcctNo--90001,105--Type--90001,105--Asset_Value--90001,105--Comments_for_Client--90001"
+            "105--Asset_Category--90001,105--Asset_Description--90001,105--ReportAcctNo--90001,105--Type--90001,105--Asset_Value--90001,105--Funding_Status--90001,105--Comments_for_Client--90001"
         );
         let create_values = writes[1]
             .2
@@ -1872,6 +1915,16 @@ mod tests {
                 }
             },
             {
+                "id": "105--Funding_Status--90001",
+                "stringValue": "Needs Verified",
+                "links": {
+                    "action": "7546",
+                    "dataCollectionField": "105--Funding_Status",
+                    "dataCollectionRecord": "90001",
+                    "dataCollection": "105"
+                }
+            },
+            {
                 "id": "105--Comments_for_Client--90001",
                 "stringValue": "Added from portal",
                 "links": {
@@ -1902,6 +1955,7 @@ mod tests {
             .get("datacollectionrecordvalues")
             .and_then(serde_json::Value::as_array)
             .unwrap();
+        assert_eq!(writes[3].1, "105--Deleted--2819");
         assert_eq!(deleted_values[0]["id"], "105--Deleted--2819");
         assert_eq!(deleted_values[0]["stringValue"], "DELETED");
     }
