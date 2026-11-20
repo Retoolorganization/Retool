@@ -227,6 +227,10 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .modal-note { margin: 0; color: #7b8885; font-size: 9px; line-height: 1.5; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; padding-top: 13px; border-top: 1px solid #e8ecea; }
 .button-quiet { background: #f0f3f2; color: #52615e; }
+.button-danger { background: var(--red); color: #fff; }
+.button-danger:hover:not(:disabled) { filter: brightness(.92); }
+.button-danger:disabled { opacity: .45; cursor: not-allowed; }
+.delete-confirmation-copy { margin: 0; color: #52615e; font-size: 12px; line-height: 1.5; }
 
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes enter { from { opacity: 0; transform: translateY(7px); } to { opacity: 1; transform: translateY(0); } }

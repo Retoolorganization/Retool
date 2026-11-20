@@ -46,6 +46,7 @@
   let refreshing = $state(false);
   let showNewAsset = $state(false);
   let editingAsset = $state<Asset | null>(null);
+  let deleteConfirmationAsset = $state<Asset | null>(null);
   let mutationError = $state('');
   let mutationMessage = $state('');
   let savingAsset = $state(false);
@@ -223,8 +224,15 @@
       if (!mutationError) editingAsset = null;
     }
 
-  async function removeAsset(asset: Asset) {
-      if (!window.confirm(`Mark “${asset.name}” as deleted in Actionstep?`)) return;
+  function removeAsset(asset: Asset) {
+      mutationError = '';
+      mutationMessage = '';
+      deleteConfirmationAsset = asset;
+    }
+
+  async function confirmDeleteAsset() {
+      if (!deleteConfirmationAsset || savingAsset) return;
+      const asset = deleteConfirmationAsset;
       mutationError = '';
       mutationMessage = '';
       savingAsset = true;
@@ -233,6 +241,7 @@
           method: 'DELETE'
         });
         if (!response.ok) throw await responseError(response);
+        deleteConfirmationAsset = null;
         await loadAssets();
         mutationMessage = 'Asset marked as deleted in Actionstep.';
       } catch (error) {
@@ -436,6 +445,20 @@
           {#if mutationError}<p class="mutation-message error-message" role="alert">{mutationError}</p>{/if}
           <div class="modal-actions"><button type="button" class="button button-quiet" onclick={() => editingAsset = null} disabled={savingAsset}>Cancel</button><button type="submit" class="button button-primary" disabled={savingAsset}>{savingAsset ? 'Saving…' : 'Save changes'}</button></div>
         </form>
+      </div>
+    </div>
+  {/if}
+
+  {#if deleteConfirmationAsset}
+    <div class="modal-backdrop" role="presentation">
+      <div class="asset-modal delete-confirmation-modal" role="alertdialog" aria-modal="true" aria-labelledby="delete-confirmation-title" aria-describedby="delete-confirmation-copy" tabindex="-1">
+        <div class="modal-heading"><div><span class="eyebrow">ACTIONSTEP ASSET</span><h2 id="delete-confirmation-title">Confirm deletion</h2></div></div>
+        <p id="delete-confirmation-copy" class="delete-confirmation-copy">Are you sure you want to set <strong>{deleteConfirmationAsset.name}</strong> as deleted?</p>
+        {#if mutationError}<p class="mutation-message error-message" role="alert">{mutationError}</p>{/if}
+        <div class="modal-actions">
+          <button type="button" class="button button-quiet" onclick={() => deleteConfirmationAsset = null} disabled={savingAsset}>Cancel</button>
+          <button type="button" class="button button-danger" onclick={confirmDeleteAsset} disabled={savingAsset}>{savingAsset ? 'Saving…' : 'Yes, set as deleted'}</button>
+        </div>
       </div>
     </div>
   {/if}
