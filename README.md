@@ -11,10 +11,12 @@ The portal supports adding an asset, editing `Asset_Value`, `Asset_Description`,
 `ReportAcctNo`, `Type`, `Comments_for_Client`, `LienAmount`, and `Equity_Basis`,
 and marking an asset deleted. New assets are created by POSTing a data
 collection record and then PUTting its field values. Only records created by
-the portal get `Client_Added=T`; later edits never change that marker. Delete
-sets `Deleted=DELETED` for auditing, and deleted rows are omitted from the
-display. Current edits target the action and data collection configured in
-`ASSET_API_URL` (the staging sample is action 7546 / collection 105).
+the portal get `Client_Added=T`; new assets also default to
+`Funding_Status=Needs Verified`. Later edits never change the client-added
+marker. Delete sets `Deleted=DELETED` for auditing; existing records marked
+`Deleted=true` are also omitted from the display. Current edits target the
+action and data collection configured in `ASSET_API_URL` (the staging sample
+is action 7546 / collection 105).
 
 Create a gitignored `.env` file in the project root:
 
